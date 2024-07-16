@@ -7,20 +7,25 @@ import (
 	"sync"
 	"encoding/json"
 	"strings"
+
+	"github.com/runner989/Chirpy/database"
 )
 
 type apiConfig struct {
 	mu 	sync.Mutex
 	fileserverHits int
+	db *database.DB
 }
 
-type Chirp struct {
+type ChirpRequest struct {
 	Body string `json:"body"`
 }
 
 type Response struct {
 	Error 		string 	`json:"error,omitempty"`
 	CleanedBody string 	`json:"cleaned_body,omitempty"`
+	ID			int		`json:"id,omitempty"`
+	Body		string	`json:"body,omniempty"`
 }
 
 var profaneWords = []string{
@@ -31,6 +36,13 @@ var profaneWords = []string{
 
 
 func main() {
+	db, err := database.NewDB("database.json")
+	if err != nil {
+		log.Fatalf("Failed to create database: %w", err)
+	}
+
+	apiCfg := &apiConfig{db: db}
+	
 	mux := http.NewServeMux()
 	server := &http.Server {
 		Addr: "localhost:8080",
@@ -38,7 +50,6 @@ func main() {
 	}
 
 	appFS := http.FileServer(http.Dir("."))
-	apiCfg := &apiConfig{}
 	mux.Handle("/app/*", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", appFS)))
 	
 	// Add root redirect to /app
@@ -55,11 +66,54 @@ func main() {
 	// Add reset endpoint
 	mux.HandleFunc("/api/reset", apiCfg.handlerReset)
 
-	// Add chirp validation endpoint
-	mux.HandleFunc("POST /api/validate_chirp", apiCfg.handlerValidateChirp)
+	// Add chirps endpoints
+	mux.HandleFunc("/api/chirps", apiCfg.handlerChirps)
 
 	log.Println("Listening on 8080...")
 	log.Fatal(server.ListenAndServe())
+}
+
+func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		cfg.createChirp(w, r)
+	case http.MethodGet:
+		cfg.getChirps(w, r)
+	default:
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
+	var chirpRequest ChirpRequest
+	err := json.NewDecoder(r.Body).Decode(&chirpRequest)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if len(chirpRequest.Body) > 140 {
+		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
+		return
+	}
+	cleanedBody := replaceProfaneWords(chirpRequest.Body)
+	chirp, err := cfg.db.CreateChirp(cleanedBody)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create chirp")
+		return
+	}
+	response := Response{ID: chirp.ID, Body: chirp.Body}
+	respondWithJSON(w, http.StatusCreated, response)	
+}
+
+
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.db.GetChirps()
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve chirps")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, chirps)
 }
 
 func (cfg *apiConfig) handlerMetrics(w http.ResponseWriter, r *http.Request) {
@@ -97,24 +151,6 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 		cfg.mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
-}
-
-func (cfg *apiConfig) handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
-	var chirp Chirp
-	err := json.NewDecoder(r.Body).Decode(&chirp)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
-		return
-	}
-
-	if len(chirp.Body) > 140 {
-		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
-		return
-	}
-
-	cleanedBody := replaceProfaneWords(chirp.Body)
-	response := Response{CleanedBody: cleanedBody}
-	respondWithJSON(w, http.StatusOK, response)
 }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
