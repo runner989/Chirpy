@@ -99,3 +99,15 @@ func (db *DB) GetChirps() ([]Chirp, error) {
 	return chirps, nil
 }
 
+// get chirp by ID
+func (db *DB) GetChirpByID(chirpID int) (Chirp, bool, error) {
+	db.mux.RLock()
+	defer db.mux.RUnlock()
+
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return Chirp{}, false, err
+	}
+	chirp, exists := dbStructure.Chirps[chirpID]
+	return chirp, exists, nil
+}

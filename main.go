@@ -7,7 +7,7 @@ import (
 	"sync"
 	"encoding/json"
 	"strings"
-
+	"strconv"
 	"github.com/runner989/Chirpy/database"
 )
 
@@ -42,7 +42,7 @@ func main() {
 	}
 
 	apiCfg := &apiConfig{db: db}
-	
+
 	mux := http.NewServeMux()
 	server := &http.Server {
 		Addr: "localhost:8080",
@@ -50,7 +50,9 @@ func main() {
 	}
 
 	appFS := http.FileServer(http.Dir("."))
-	mux.Handle("/app/*", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", appFS)))
+	mux.Handle("/app/",http.StripPrefix("/app", appFS))
+
+	// mux.Handle("/app/*", apiCfg.middlewareMetricsInc(http.StripPrefix("/app", appFS)))
 	
 	// Add root redirect to /app
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -68,9 +70,34 @@ func main() {
 
 	// Add chirps endpoints
 	mux.HandleFunc("/api/chirps", apiCfg.handlerChirps)
+	mux.HandleFunc("GET /api/chirps/", apiCfg.handlerGetChirpByID)
 
 	log.Println("Listening on 8080...")
 	log.Fatal(server.ListenAndServe())
+}
+
+func (cfg *apiConfig) handlerGetChirpByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/chirps/")
+	if path == "" {
+		http.Error(w, "Chirp ID not specified", http.StatusBadRequest)
+		return
+	}
+	
+	chirpID, err := strconv.Atoi(path)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid chirp ID")
+		return
+	}
+	chirp, exists, err := cfg.db.GetChirpByID(chirpID)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, "Chirp not found")
+		return
+	}
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Chirp not found")
+		return
+	}
+	respondWithJSON(w, http.StatusOK, chirp)
 }
 
 func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
