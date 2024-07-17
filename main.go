@@ -21,11 +21,16 @@ type ChirpRequest struct {
 	Body string `json:"body"`
 }
 
+type UserRequest struct {
+	Email string `json:"email"`
+}
+
 type Response struct {
 	Error 		string 	`json:"error,omitempty"`
 	CleanedBody string 	`json:"cleaned_body,omitempty"`
 	ID			int		`json:"id,omitempty"`
-	Body		string	`json:"body,omniempty"`
+	Body		string	`json:"body,omitempty"`
+	Email		string	`json:"email,omitempty"`
 }
 
 var profaneWords = []string{
@@ -33,7 +38,6 @@ var profaneWords = []string{
 	"sharbert",
 	"fornax",
 }
-
 
 func main() {
 	db, err := database.NewDB("database.json")
@@ -72,6 +76,9 @@ func main() {
 	mux.HandleFunc("/api/chirps", apiCfg.handlerChirps)
 	mux.HandleFunc("GET /api/chirps/", apiCfg.handlerGetChirpByID)
 
+	// Add users api
+	mux.HandleFunc("/api/users", apiCfg.handlerCreateUser)
+
 	log.Println("Listening on 8080...")
 	log.Fatal(server.ListenAndServe())
 }
@@ -109,6 +116,22 @@ func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) {
+	var userRequest UserRequest
+	err := json.NewDecoder(r.Body).Decode(&userRequest)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	user, err := cfg.db.CreateUser(userRequest.Email)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to create user")
+		return
+	}
+	response := Response{ID: user.ID, Email: user.Email}
+	respondWithJSON(w, http.StatusCreated, response)
 }
 
 func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
