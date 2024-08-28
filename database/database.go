@@ -136,6 +136,21 @@ func (db *DB) GetChirpByID(chirpID int) (Chirp, bool, error) {
 	return chirp, exists, nil
 }
 
+func (db *DB) DeleteChirp(id int) error {
+	db.mux.Lock()
+	defer db.mux.Unlock()
+
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return err
+	}
+	if _, exists := dbStructure.Chirps[id]; !exists {
+		return errors.New("chirp not found")
+	}
+	delete(dbStructure.Chirps, id)
+	return db.writeDB(dbStructure)
+}
+
 func (db *DB) CreateUser(email, password string) (User, error) {
 	db.mux.Lock()
 	defer db.mux.Unlock()
