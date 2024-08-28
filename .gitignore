@@ -22,6 +22,7 @@ bin/
 pkg/
 vendor/
 database.json
+debug.log
 
 # Go workspace file
 go.work

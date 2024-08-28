@@ -86,7 +86,7 @@ func (db *DB) writeDB(dbStructure DBStructure) error {
 }
 
 // Create a new chirp and save it to disk
-func (db *DB) CreateChirp(body string) (Chirp, error) {
+func (db *DB) CreateChirp(body string, authorID int) (Chirp, error) {
 	db.mux.Lock()
 	defer db.mux.Unlock()
 
@@ -96,7 +96,7 @@ func (db *DB) CreateChirp(body string) (Chirp, error) {
 	}
 
 	id := len(dbStructure.Chirps) + 1
-	chirp := Chirp{ID: id, Body: body}
+	chirp := Chirp{ID: id, Body: body, AuthorID: authorID}
 	dbStructure.Chirps[id] = chirp
 	err = db.writeDB(dbStructure)
 	return chirp, err

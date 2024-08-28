@@ -52,6 +52,7 @@ type Response struct {
 	Email        string `json:"email,omitempty"`
 	Token        string `json:"token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	AuthorID     int    `json:"author_id,omitempty"`
 }
 
 var profaneWords = []string{
@@ -150,8 +151,40 @@ func (cfg *apiConfig) handlerChirps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		respondWithError(w, http.StatusUnauthorized, "Missing Authorization header")
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	if tokenString == authHeader {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token format")
+		return
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
+		return []byte(cfg.jwtSecret), nil
+	})
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
+	claims, ok := token.Claims.(*jwt.RegisteredClaims)
+	if !ok || !token.Valid {
+		respondWithError(w, http.StatusUnauthorized, "Invalid token claims")
+		return
+	}
+
+	userID, err := strconv.Atoi(claims.Subject)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Invalid user ID in token")
+		return
+	}
+
 	var chirpRequest ChirpRequest
-	err := json.NewDecoder(r.Body).Decode(&chirpRequest)
+	err = json.NewDecoder(r.Body).Decode(&chirpRequest)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
 		return
@@ -162,16 +195,16 @@ func (cfg *apiConfig) createChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cleanedBody := replaceProfaneWords(chirpRequest.Body)
-	chirp, err := cfg.db.CreateChirp(cleanedBody)
+	chirp, err := cfg.db.CreateChirp(cleanedBody, userID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to create chirp")
 		return
 	}
-	response := Response{ID: chirp.ID, Body: chirp.Body}
+	response := Response{ID: chirp.ID, Body: chirp.Body, AuthorID: chirp.AuthorID}
 	respondWithJSON(w, http.StatusCreated, response)
 }
 
-func (cfg *apiConfig) getChirps(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) getChirps(w http.ResponseWriter, _ *http.Request) {
 	chirps, err := cfg.db.GetChirps()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve chirps")
@@ -208,14 +241,14 @@ func handlerReadiness(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(http.StatusText(http.StatusOK)))
 }
 
-func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cfg.mu.Lock()
-		cfg.fileserverHits++
-		cfg.mu.Unlock()
-		next.ServeHTTP(w, r)
-	})
-}
+// func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
+// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// 		cfg.mu.Lock()
+// 		cfg.fileserverHits++
+// 		cfg.mu.Unlock()
+// 		next.ServeHTTP(w, r)
+// 	})
+// }
 
 func respondWithError(w http.ResponseWriter, code int, msg string) {
 	response := Response{Error: msg}
