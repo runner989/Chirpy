@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,6 +12,39 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func (cfg *apiConfig) handlerPolkaWebhooks(w http.ResponseWriter, r *http.Request) {
+	var webhookRequest struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID int `json:"user_id"`
+		} `json:"data"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&webhookRequest)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if webhookRequest.Event != "user.upgraded" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	_, err = cfg.db.UpdateUserChirpyRedStatus(webhookRequest.Data.UserID, true)
+	if err != nil {
+		if err.Error() == "user not found" {
+			respondWithError(w, http.StatusNotFound, "User not found")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "Failed to update user status")
+		}
+		return
+	}
+
+	// Log for debugging
+	log.Printf("User %d upgraded to Chirpy Red.", webhookRequest.Data.UserID)
+
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func (cfg *apiConfig) handlerGetChirpByID(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/chirps/")
@@ -261,13 +295,20 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := Response{ID: user.ID, Email: user.Email, Token: tokenString}
-	// refreshToken, err := cfg.db.CreateRefreshToken(user.ID)
-	// if err != nil {
-	// 	respondWithError(w, http.StatusInternalServerError, "Failed to generate refresh token")
-	// 	return
-	// }
-	// response := Response{ID: user.ID, Email: user.Email, Token: tokenString, RefreshToken: refreshToken.Token}
+	refreshToken, err := cfg.db.CreateRefreshToken(user.ID)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to generate refresh token")
+		return
+	}
+	//response := Response{ID: user.ID, Email: user.Email, Token: tokenString, RefreshToken: refreshToken.Token}
+	response := Response{
+		ID:           user.ID,
+		Email:        user.Email,
+		Token:        tokenString,
+		RefreshToken: refreshToken.Token,
+		IsChirpyRed:  user.IsChirpyRed,
+	}
+
 	respondWithJSON(w, http.StatusOK, response)
 }
 
@@ -283,7 +324,10 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusInternalServerError, "Failed to create user")
 		return
 	}
-	response := Response{ID: user.ID, Email: user.Email}
+	response := Response{
+		ID:          user.ID,
+		Email:       user.Email,
+		IsChirpyRed: user.IsChirpyRed}
 	respondWithJSON(w, http.StatusCreated, response)
 }
 

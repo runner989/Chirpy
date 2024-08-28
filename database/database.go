@@ -23,6 +23,7 @@ type User struct {
 	ID             int    `json:"id"`
 	Email          string `json:"email"`
 	HashedPassword string `json:"password"`
+	IsChirpyRed    bool   `json:"is_chirpy_red"`
 }
 
 type DBStructure struct {
@@ -57,8 +58,9 @@ func (db *DB) ensureDB() error {
 	_, err := os.ReadFile(db.path)
 	if os.IsNotExist(err) {
 		initialData := DBStructure{
-			Chirps: make(map[int]Chirp),
-			Users:  make(map[int]User),
+			Chirps:        make(map[int]Chirp),
+			Users:         make(map[int]User),
+			RefreshTokens: make(map[string]RefreshToken),
 		}
 		return db.writeDB(initialData)
 	}
@@ -172,8 +174,9 @@ func (db *DB) CreateUser(email, password string) (User, error) {
 	}
 
 	id := len(dbStructure.Users) + 1
-	user := User{ID: id, Email: email, HashedPassword: string(hashedPassword)}
+	user := User{ID: id, Email: email, HashedPassword: string(hashedPassword), IsChirpyRed: false}
 	dbStructure.Users[id] = user
+
 	err = db.writeDB(dbStructure)
 	return user, err
 }
@@ -235,6 +238,24 @@ func (db *DB) UpdateUser(id int, email, password string) (User, error) {
 	}
 	user.HashedPassword = string(hashedPassword)
 	dbStructure.Users[id] = user
+	err = db.writeDB(dbStructure)
+	return user, err
+}
+
+func (db *DB) UpdateUserChirpyRedStatus(userID int, isChirpyRed bool) (User, error) {
+	db.mux.Lock()
+	defer db.mux.Unlock()
+
+	dbStructure, err := db.loadDB()
+	if err != nil {
+		return User{}, err
+	}
+	user, exists := dbStructure.Users[userID]
+	if !exists {
+		return User{}, errors.New("user not found")
+	}
+	user.IsChirpyRed = isChirpyRed
+	dbStructure.Users[userID] = user
 	err = db.writeDB(dbStructure)
 	return user, err
 }

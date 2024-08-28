@@ -47,6 +47,7 @@ type Response struct {
 	Token        string `json:"token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
 	AuthorID     int    `json:"author_id,omitempty"`
+	IsChirpyRed  bool   `json:"is_chirpy_red"`
 }
 
 var profaneWords = []string{
@@ -105,6 +106,8 @@ func main() {
 
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerRefreshToken)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeToken)
+
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.handlerPolkaWebhooks)
 
 	log.Println("Listening on 8080...")
 	log.Fatal(server.ListenAndServe())
